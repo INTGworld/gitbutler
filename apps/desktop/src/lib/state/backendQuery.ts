@@ -1,11 +1,16 @@
 import { PostHogWrapper } from '$lib/analytics/posthog';
 import { isTauriCommandError, type TauriCommandError } from '$lib/backend/ipc';
 import { Tauri } from '$lib/backend/tauri';
+import { SettingsService } from '$lib/config/appSettingsV2';
+import { getContext } from '@gitbutler/shared/context';
 import { isErrorlike } from '@gitbutler/ui/utils/typeguards';
 import { type BaseQueryApi, type QueryReturnValue } from '@reduxjs/toolkit/query';
+import { get } from 'svelte/store';
 
 export type TauriBaseQueryFn = typeof tauriBaseQuery;
 
+const settingsService = getContext(SettingsService);
+const appSettings = settingsService.appSettings;
 export async function tauriBaseQuery(
 	args: ApiArgs,
 	api: BaseQueryApi
@@ -19,12 +24,17 @@ export async function tauriBaseQuery(
 	try {
 		const result = { data: await api.extra.tauri.invoke(args.command, args.params) };
 		if (posthog && args.actionName) {
-			posthog.capture(`${args.actionName} Successful`);
+			posthog.capture(`${args.actionName} Successful`, {
+				v3: get(appSettings)?.featureFlags.v3 || false
+			});
 		}
 		return result;
 	} catch (error: unknown) {
 		if (posthog && args.actionName) {
-			posthog.capture(`${args.actionName} Failed`, { error });
+			posthog.capture(`${args.actionName} Failed`, {
+				error,
+				v3: get(appSettings)?.featureFlags.v3 || false
+			});
 		}
 
 		const name = `API error: ${args.actionName} (${args.command})`;
