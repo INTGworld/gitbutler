@@ -1,11 +1,13 @@
 use crate::{ChangeState, TreeStatus};
-use crate::{Commit, ModeFlags, TreeChange};
+use crate::{ModeFlags, TreeChange};
 use gix::diff::tree_with_rewrites::Change;
-use gix::prelude::{ObjectIdExt, TreeDiffChangeExt};
+use gix::prelude::TreeDiffChangeExt;
 
-/// Produce all changes that are needed to turn the tree of `lhs_commit` into the tree of `rhs_commit`.
-/// If `lhs_commit` is `None`, it will be treated like an empty tree, which is useful if
-/// there was no tree to compare `lhs_commit` to (e.g. in case of the first commit).
+/// Produce all changes that are needed to turn the tree of `lhs` into the tree of `rhs`.
+/// If `lhs` is `None`, it will be treated like an empty tree, which is useful if
+/// there was no tree to compare `lhs` to (e.g. in case of the first commit).
+///
+/// Can be given either a commit or a tree oid.
 ///
 /// Note that we deal with conflicted commits correctly by resolving to the actual tree, not the one with meta-data.
 ///
@@ -13,23 +15,18 @@ use gix::prelude::{ObjectIdExt, TreeDiffChangeExt};
 ///
 /// Additionally, line-stats aggregated for all changes will be computed, which incurs a considerable fraction of the cost
 /// of asking for [UnifiedDiffs](TreeChange::unified_diff()).
-pub fn commit_changes(
+pub fn tree_changes(
     repo: &gix::Repository,
-    lhs_commit: Option<gix::ObjectId>,
-    rhs_commit: gix::ObjectId,
+    lhs: Option<gix::ObjectId>,
+    rhs: gix::ObjectId,
 ) -> anyhow::Result<(Vec<TreeChange>, gix::object::tree::diff::Stats)> {
-    let lhs_tree = lhs_commit
-        .map(|commit_id| {
-            Commit::from_id(commit_id.attach(repo)).and_then(|commit| {
-                let id = commit.tree_id()?;
-                Ok(id.object()?.into_tree())
-            })
+    let lhs_tree = lhs
+        .map(|id| -> anyhow::Result<gix::Tree<'_>> {
+            let object = repo.find_object(id)?;
+            Ok(object.peel_to_tree()?)
         })
         .transpose()?;
-    let rhs_tree = Commit::from_id(rhs_commit.attach(repo))?
-        .tree_id()?
-        .object()
-        .map(|obj| obj.into_tree())?;
+    let rhs_tree = repo.find_object(rhs)?.peel_to_tree()?;
 
     let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
     let changes = repo.diff_tree_to_tree(lhs_tree.as_ref(), &rhs_tree, None)?;
